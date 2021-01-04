@@ -1,0 +1,113 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app: gitlab-server
+  name: data-gitlab-server
+  namespace: klovercloud
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: pv-ssd-root-ec-sc
+
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-server
+  namespace: klovercloud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  minReadySeconds: 25
+  template:
+    metadata:
+      labels:
+        app: gitlab-server
+    spec:
+      serviceAccountName: klovercloud-default-sa
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: data-gitlab-server
+          persistentVolumeClaim:
+            claimName: data-gitlab-server
+      containers:
+        - name: gitlab-server
+          imagePullPolicy: Always
+          image: gitlab/gitlab-ce:13.6.3-ce.0
+          resources:
+            requests:
+              cpu: 2
+              memory: 8Gi
+            limits:
+              cpu: 3
+              memory: 8Gi
+          ports:
+            - containerPort: 80
+            - containerPort: 433
+          volumeMounts:
+            - mountPath: "/etc/gitlab"
+              name: data-gitlab-server
+              subPath: config
+            - mountPath: "/var/log/gitlab"
+              name: data-gitlab-server
+              subPath: logs
+            - mountPath: "/var/opt/gitlab"
+              name: data-gitlab-server
+              subPath: data
+      imagePullSecrets:
+        - name: regcred-dh
+
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-server
+  namespace: klovercloud
+  labels:
+    app: gitlab-server
+spec:
+  ports:
+    - name: http-rest
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: gitlab-server
+
+
+
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: gitlab-server
+  namespace: klovercloud
+spec:
+  rules:
+  - host: gitlab.abc.xyz
+    http:
+      paths:
+      - backend:
+          serviceName: gitlab-server
+          servicePort: 80
+        path: /
+  tls:
+  - hosts:
+    - gitlab.abc.xyz
+    secretName: wild-certificate-secret
